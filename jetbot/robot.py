@@ -1,138 +1,94 @@
-# Modified by SparkFun Electronics June 2021
-# Author: Wes Furuya
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY without even the implied warrranty of
-# MERCHANABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the 
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program. If not, see <http://www.gnu.org/license>
-#
-#==================================================================================
-# Copyright (c) 2021 SparkFun Electronics
-#
-# Permission is hereby granted, free of charge, to any person obtaining a copy
-# of this software and associated documentation files (the "Software"), to deal
-# in the Software without restriction, including without limitation the rights
-# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-# copies of the Software, and to permit persons to whom the Software is
-# furnished to do so, subject to the following conditions:
-#
-# The above copyright notice and this permission notice shall be included in all
-# copies or substantial portions of the Software.
-#
-# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-# SOFTWARE.
-#==================================================================================
+import RPi.GPIO as GPIO
+import atexit
+GPIO.setmode(GPIO.BOARD)
 
-import time
-import traitlets
-from traitlets.config.configurable import SingletonConfigurable
-import qwiic
-from Adafruit_MotorHAT import Adafruit_MotorHAT
-from .motor import Motor
+class Robot():
+    def __init__(self, left_multiplier=1, right_multiplier=1, IN1=22, IN2=32, IN3=23, IN4=33, PWM_freq=100, PWM_forward=False, max_speed=1):
+        self.left_multiplier = left_multiplier
+        self.right_multiplier = right_multiplier
+        self.IN1 = IN1  # right
+        self.IN2 = IN2  # right PWM
+        self.IN3 = IN3  # left
+        self.IN4 = IN4  # left PWM
+        self.p_left = GPIO.PWM(IN4, PWM_freq)
+        self.p_right = GPIO.PWM(IN2, PWM_freq)
+        GPIO.setup(IN1, GPIO.OUT)
+        GPIO.setup(IN3, GPIO.OUT)
+        self.PWM_forward = PWM_forward    # Are PWM set to drive the motors forward or backward?
+        self.max_speed = max_speed
+        self.p_left.start(0)
+        self.p_right.start(0)
+        atexit.register(self.release)
 
-# Scan for devices on I2C bus
-addresses = qwiic.scan()
 
-class Robot(SingletonConfigurable):
+    def release(self):
+        print("Cleaning up...")
+        self.p_left.stop()  # Turn off PWM signal
+        self.p_right.stop()
+        GPIO.output(self.IN1, GPIO.LOW)  # Turn off non-PWM signal
+        GPIO.output(self.IN3, GPIO.LOW)
+        GPIO.cleanup()
 
-    left_motor = traitlets.Instance(Motor)
-    right_motor = traitlets.Instance(Motor)
-    
-    
-    # config
-    i2c_bus = traitlets.Integer(default_value=1).tag(config=True)
-    left_motor_channel = traitlets.Integer(default_value=1).tag(config=True)
-    left_motor_alpha = traitlets.Float(default_value=1.0).tag(config=True)
-    right_motor_channel = traitlets.Integer(default_value=2).tag(config=True)
-    right_motor_alpha = traitlets.Float(default_value=1.0).tag(config=True)
 
-    # Adafruit Hardware
-    if 96 in addresses:
-            
-            def __init__(self, *args, **kwargs):
-                super(Robot, self).__init__(*args, **kwargs)
-                self.motor_driver = Adafruit_MotorHAT(i2c_bus=self.i2c_bus)
-                self.left_motor = Motor(self.motor_driver, channel=self.left_motor_channel, alpha=self.left_motor_alpha)
-                self.right_motor = Motor(self.motor_driver, channel=self.right_motor_channel, alpha=self.right_motor_alpha)
-                
-            def set_motors(self, left_speed, right_speed):
-                self.left_motor.value = left_speed
-                self.right_motor.value = right_speed
-                
-            def forward(self, speed=1.0, duration=None):
-                self.left_motor.value = speed
-                self.right_motor.value = speed
+    def set_motors(self, left_velocity, right_velocity):
+        self.set_left_motor(left_velocity)
+        self.set_right_motor(right_velocity)
 
-            def backward(self, speed=1.0):
-                self.left_motor.value = -speed
-                self.right_motor.value = -speed
 
-            def left(self, speed=1.0):
-                self.left_motor.value = -speed
-                self.right_motor.value = speed
+    def stop(self):
+        self.p_left.ChangeDutyCycle(0)
+        self.p_right.ChangeDutyCycle(0)
+        GPIO.output(self.IN1, GPIO.LOW)
+        GPIO.output(self.IN3, GPIO.LOW)
 
-            def right(self, speed=1.0):
-                self.left_motor.value = speed
-                self.right_motor.value = -speed
 
-            def stop(self):
-                self.left_motor.value = 0
-                self.right_motor.value = 0
+    def forward(self, speed=1.0):
+        self.set_motors(speed, speed)
 
-    # SparkFun Hardware
-    elif 93 in addresses:
-                
-            def __init__(self, *args, **kwargs):
-                super(Robot, self).__init__(*args, **kwargs)
-                
-                self.motor_driver = qwiic.QwiicScmd()
-                self.left_motor = Motor(self.motor_driver, channel=self.left_motor_channel, alpha=self.left_motor_alpha)
-                self.right_motor = Motor(self.motor_driver, channel=self.right_motor_channel, alpha=self.right_motor_alpha)
-                self.motor_driver.enable()
-                
-            def set_motors(self, left_speed, right_speed):
-                self.left_motor.value = left_speed
-                self.right_motor.value = right_speed
-                self.motor_driver.enable()
-        
-            # Set Motor Controls: .set_drive( motor number, direction, speed)
-            # Motor Number: A = 0, B = 1
-            # Direction: FWD = 0, BACK = 1
-            # Speed: (-255) - 255 (neg. values reverse direction of motor)
-            
-            def forward(self, speed=1.0, duration=None):
-                speed = int(speed*255)
-                self.motor_driver.set_drive(0, 0, speed)
-                self.motor_driver.set_drive(1, 0, speed)
-                self.motor_driver.enable()
 
-            def backward(self, speed=1.0):
-                speed = int(speed*255)
-                self.motor_driver.set_drive(0, 1, speed)
-                self.motor_driver.set_drive(1, 1, speed)
-                self.motor_driver.enable()
+    def backward(self, speed=1.0):
+        self.set_motors(-1 * speed, -1 * speed)
 
-            def left(self, speed=1.0):
-                speed = int(speed*255)
-                self.motor_driver.set_drive(0, 1, speed)
-                self.motor_driver.set_drive(1, 0, speed)
-                self.motor_driver.enable()
 
-            def right(self, speed=1.0):
-                speed = int(speed*255)
-                self.motor_driver.set_drive(0, 0, speed)
-                self.motor_driver.set_drive(1, 1, speed)
-                self.motor_driver.enable()
+    def left(self, speed=1.0):
+        self.set_motors(-1 * speed, speed)
 
-            def stop(self):
-                self.motor_driver.set_drive(0, 0, 0)
-                self.motor_driver.set_drive(1, 1, 0)
-                self.motor_driver.disable()
+
+    def right(self, speed=1.0):
+        self.set_motors(speed, -1 * speed)
+
+
+    def set_left_motor(self, left_velocity):
+        mapped_vel = self.map_velocity(left_velocity) * self.left_multiplier
+        if (self.PWM_forward and mapped_vel >= 0) or (not self.PWM_forward and mapped_vel <= 0):
+            self.p_left.ChangeDutyCycle(abs(mapped_vel))
+            GPIO.output(self.IN3, GPIO.LOW)
+        else: 
+            GPIO.output(self.IN3, GPIO.HIGH)
+            if mapped_vel < 0:
+                self.p_left.ChangeDutyCycle(100 + mapped_vel)
+            else:
+                self.p_left.ChangeDutyCycle(100 - mapped_vel)
+
+
+    def set_right_motor(self, right_velocity):
+        mapped_vel = self.map_velocity(right_velocity) * self.right_multiplier
+        if (self.PWM_forward and mapped_vel >= 0) or (not self.PWM_forward and mapped_vel <= 0):
+            self.p_right.ChangeDutyCycle(abs(mapped_vel))
+            GPIO.output(self.IN1, GPIO.LOW)
+        else: 
+            GPIO.output(self.IN1, GPIO.HIGH)
+            if mapped_vel < 0:
+                self.p_right.ChangeDutyCycle(100 + mapped_vel)
+            else:
+                self.p_right.ChangeDutyCycle(100 - mapped_vel)
+
+
+    def map_velocity(self, velocity):
+        if velocity < -1 * self.max_speed or velocity > self.max_speed:
+            raise ValueError('Speed must be between 0 and 100, inclusive')
+        else:
+            mapped_val = int(100.0 * velocity / self.max_speed)
+            # speed = min(max(abs(mapped_val, 0), 100))
+            return mapped_val
+
