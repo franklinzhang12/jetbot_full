@@ -1,3 +1,11 @@
+# Fork note
+This fork is designed to allow the jetbot.org notebooks to work with a [cheaper JetBot powered by GPIO pins](https://github.com/franklinzhang12/jetbot). It is assumed that you have already set up that repository (software installation, WiFi setup, motor setup).
+1. Follow the [Docker setup](https://jetbot.org/master/software_setup/docker.html), cloning this repo instead in step 3.
+1. Be sure to run setup.sh in this repo or the linked one each time the JetBot is booted; this is necessary for powering the motors.
+1. You can now follow the Jupyter notebooks as outlined on jetbot.org.
+
+Note: This fork is not guaranteed to be kept up to date. See the repo linked above for more information.
+
 # JetBot
 
 <!--[<img src="https://img.shields.io/discord/553852754058280961.svg">](https://discord.gg/Ady6NtF) -->
